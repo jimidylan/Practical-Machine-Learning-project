@@ -1,0 +1,220 @@
+---
+title: "Practical Machine Learning Project"
+author: "Micheal Copeland"
+date: "November 18, 2015"
+output: html_document
+---
+
+This is the course project for Practical Machine Learning from Coursera.
+
+```{r}
+library(AppliedPredictiveModeling)
+library(caret)
+library(rpart.plot)
+library(randomForest)
+```
+
+
+
+```{r}
+# Download data.
+trainUrl<-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl<-"http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# Import the data treating empty values as NA.
+df_training <- read.csv(url(trainUrl), na.strings=c("NA", "#DIV/0!",""))
+colnames_train <- colnames(df_training)
+df_testing <- read.csv(url(testUrl), na.strings=c("NA", "#DIV/0!",""))
+colnames_test <- colnames(df_testing)
+
+# Verify that the column names (excluding classe and problem_id) are identical in the training and test set.
+all.equal(colnames_train[1:length(colnames_train)-1], colnames_test[1:length(colnames_train)-1])
+```
+
+
+```{r}
+# Count the number of non-NAs in each col.
+nonNAs <- function(x) {
+    as.vector(apply(x, 2, function(x) length(which(!is.na(x)))))
+}
+
+# Build vector of missing data or NA columns to drop.
+colcnts <- nonNAs(df_training)
+drops <- c()
+for (cnt in 1:length(colcnts)) {
+    if (colcnts[cnt] < nrow(df_training)) {
+        drops <- c(drops, colnames_train[cnt])
+    }
+}
+
+# Drop NA data and the first 7 columns as they're unnecessary for predicting.
+df_training <- df_training[,!(names(df_training) %in% drops)]
+df_training <- df_training[,8:length(colnames(df_training))]
+
+df_testing <- df_testing[,!(names(df_testing) %in% drops)]
+df_testing <- df_testing[,8:length(colnames(df_testing))]
+
+# Show remaining columns.
+colnames(df_training)
+```
+
+```{r}
+colnames(df_testing)
+```
+
+```{r}
+nsv <- nearZeroVar(df_training, saveMetrics=TRUE)
+nsv
+```
+
+#Algorithm
+
+```{r}
+# Divide the given training set into 4 roughly equal sets.
+set.seed(666)
+ids_small <- createDataPartition(y=df_training$classe, p=0.25, list=FALSE)
+df_small1 <- df_training[ids_small,]
+df_remainder <- df_training[-ids_small,]
+ids_small <- createDataPartition(y=df_remainder$classe, p=0.33, list=FALSE)
+df_small2 <- df_remainder[ids_small,]
+df_remainder <- df_remainder[-ids_small,]
+ids_small <- createDataPartition(y=df_remainder$classe, p=0.5, list=FALSE)
+df_small3 <- df_remainder[ids_small,]
+df_small4 <- df_remainder[-ids_small,]
+# Divide each of these 4 sets into training (60%) and test (40%) sets.
+inTrain <- createDataPartition(y=df_small1$classe, p=0.6, list=FALSE)
+df_small_training1 <- df_small1[inTrain,]
+df_small_testing1 <- df_small1[-inTrain,]
+inTrain <- createDataPartition(y=df_small2$classe, p=0.6, list=FALSE)
+df_small_training2 <- df_small2[inTrain,]
+df_small_testing2 <- df_small2[-inTrain,]
+inTrain <- createDataPartition(y=df_small3$classe, p=0.6, list=FALSE)
+df_small_training3 <- df_small3[inTrain,]
+df_small_testing3 <- df_small3[-inTrain,]
+inTrain <- createDataPartition(y=df_small4$classe, p=0.6, list=FALSE)
+df_small_training4 <- df_small4[inTrain,]
+df_small_testing4 <- df_small4[-inTrain,]
+```
+
+#Evaluation
+
+##Classification Tree
+
+```{r}
+# Train on training set 1 of 4 with no extra features.
+modFit <- train(df_small_training1$classe ~ ., data = df_small_training1, method="rpart")
+print(modFit, digits=3)
+```
+```{r}
+print(modFit$finalModel, digits=3)
+```
+
+```{r}
+# Run against testing set 1 of 4 with no extra features.
+predictions <- predict(modFit, newdata=df_small_testing1)
+print(confusionMatrix(predictions, df_small_testing1$classe), digits=4)
+```
+
+```{r}
+# Train on training set 1 of 4 with only preprocessing.
+modFit <- train(df_small_training1$classe ~ .,  preProcess=c("center", "scale"), data = df_small_training1, method="rpart")
+print(modFit, digits=3)
+```
+
+```{r}
+# Train on training set 1 of 4 with only cross validation.
+modFit <- train(df_small_training1$classe ~ .,  trControl=trainControl(method = "cv", number = 4), data = df_small_training1, method="rpart")
+print(modFit, digits=3)
+```
+
+```{r}
+# Train on training set 1 of 4 with both preprocessing and cross validation.
+modFit <- train(df_small_training1$classe ~ .,  preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = df_small_training1, method="rpart")
+print(modFit, digits=3)
+```
+
+```{r}
+# Run against testing set 1 of 4 with both preprocessing and cross validation.
+predictions <- predict(modFit, newdata=df_small_testing1)
+print(confusionMatrix(predictions, df_small_testing1$classe), digits=4)
+```
+
+#Random Forest
+
+```{r}
+# Train on training set 1 of 4 with only cross validation.
+modFit <- train(df_small_training1$classe ~ ., method="rf", trControl=trainControl(method = "cv", number = 4), data=df_small_training1)
+print(modFit, digits=3)
+```
+
+```{r}
+# Run against testing set 1 of 4.
+predictions <- predict(modFit, newdata=df_small_testing1)
+print(confusionMatrix(predictions, df_small_testing1$classe), digits=4)
+```
+```{r}
+# Run against 20 testing set provided by Professor Leek.
+print(predict(modFit, newdata=df_testing))
+```
+```{r}
+# Train on training set 1 of 4 with only both preprocessing and cross validation.
+modFit <- train(df_small_training1$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=df_small_training1)
+print(modFit, digits=3)
+```
+```{r}
+# Run against testing set 1 of 4.
+predictions <- predict(modFit, newdata=df_small_testing1)
+print(confusionMatrix(predictions, df_small_testing1$classe), digits=4)
+```
+
+```{r}
+# Run against 20 testing set provided by Professor Leek.
+print(predict(modFit, newdata=df_testing))
+```
+
+```{r}
+# Train on training set 2 of 4 with only cross validation.
+modFit <- train(df_small_training2$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=df_small_training2)
+print(modFit, digits=3)
+```
+```{r}
+# Run against testing set 2 of 4.
+predictions <- predict(modFit, newdata=df_small_testing2)
+print(confusionMatrix(predictions, df_small_testing2$classe), digits=4)
+```
+```{r}
+# Run against 20 testing set provided by Professor Leek.
+print(predict(modFit, newdata=df_testing))
+```
+```{r}
+# Train on training set 3 of 4 with only cross validation.
+modFit <- train(df_small_training3$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=df_small_training3)
+print(modFit, digits=3)
+```
+```{r}
+# Run against testing set 3 of 4.
+predictions <- predict(modFit, newdata=df_small_testing3)
+print(confusionMatrix(predictions, df_small_testing3$classe), digits=4)
+```
+```{r}
+# Run against 20 testing set provided by Professor Leek.
+print(predict(modFit, newdata=df_testing))
+```
+```{r}
+# Train on training set 4 of 4 with only cross validation.
+modFit <- train(df_small_training4$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=df_small_training4)
+print(modFit, digits=3)
+```
+```{r}
+# Run against testing set 4 of 4.
+predictions <- predict(modFit, newdata=df_small_testing4)
+print(confusionMatrix(predictions, df_small_testing4$classe), digits=4)
+```
+
+```{r}
+# Run against 20 testing set provided by Professor Leek.
+print(predict(modFit, newdata=df_testing))
+```
+#Out of Sample Error
+
+#Conclusion
